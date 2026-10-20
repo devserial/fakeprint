@@ -41,9 +41,10 @@ fn err_response(e: anyhow::Error) -> Response {
 }
 
 /// True for a loopback peer, or when the peer is unknown (an in-process call).
+/// IPv4-mapped IPv6 loopback (`::ffff:127.0.0.1`) counts; a mapped LAN address does not.
 pub fn peer_allowed(peer: &Peer) -> bool {
     match peer {
-        Some(axum::extract::Extension(ConnectInfo(a))) => a.ip().is_loopback(),
+        Some(axum::extract::Extension(ConnectInfo(a))) => crate::lab::is_loopback_ip(a.ip()),
         None => true,
     }
 }

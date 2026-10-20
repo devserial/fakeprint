@@ -1131,11 +1131,9 @@ pub fn router_with(world: SharedWorld, opts: &RouterOptions, device: Option<Devi
             .route(
                 "/ipp/print/{*job}",
                 get(ipp::print_handler).post(ipp::print_handler),
-            )
-            // documents arrive in the request body; the engine's own limit decides, not axum's 2 MiB
-            .layer(axum::extract::DefaultBodyLimit::max(
-                crate::state::INBOX_MAX_DOCUMENT + (1 << 20),
-            ));
+            );
+        // The handler reads the body with `limits.max_body` (not axum's 2 MiB `Bytes` default,
+        // and not the old 257 MiB extractor cap). A larger POST is HTTP 413.
         app = app.merge(with_probe(ipp_routes.layer(capture()), &device));
     }
     if opts.wsd {

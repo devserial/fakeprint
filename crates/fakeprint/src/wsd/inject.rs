@@ -57,6 +57,10 @@ pub const INJECT_NS: &str = "urn:fakeprint:inject";
 /// Longest delay a rule may ask for (ten minutes); a longer one is refused.
 pub const MAX_DELAY_MS: u64 = 600_000;
 
+/// Pending injection rules one device will hold. A request that would pass the cap is refused
+/// and adds nothing.
+pub const MAX_PENDING_RULES: usize = 256;
+
 /// Largest `Http` effect body (1 MiB).
 pub const MAX_HTTP_BODY: usize = 1 << 20;
 
@@ -628,26 +632,61 @@ impl Injector {
         }
     }
 
+    /// How many rules are still queued.
+    pub fn len(&self) -> usize {
+        self.lock().len()
+    }
+
+    /// No rules queued.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Refuse a batch that would pass [`MAX_PENDING_RULES`]. `clearing` is a reset or
+    /// `inject_clear`, which drops the queue before the new rules are added.
+    pub fn check_room(&self, clearing: bool, adding: usize) -> Result<(), String> {
+        let have = if clearing { 0 } else { self.len() };
+        if have.saturating_add(adding) > MAX_PENDING_RULES {
+            Err(format!(
+                "at most {MAX_PENDING_RULES} injection rules (have {have}, adding {adding})"
+            ))
+        } else {
+            Ok(())
+        }
+    }
+
     /// Append a rule (after checking it).
     pub fn add(&self, rule: InjectRule) -> Result<(), String> {
         rule.check()?;
-        let slot = Slot {
+        let mut slots = self.lock();
+        if slots.len() >= MAX_PENDING_RULES {
+            return Err(format!("at most {MAX_PENDING_RULES} injection rules"));
+        }
+        slots.push(Slot {
             skip_left: rule.skip,
             left: rule.count,
             hits: 0,
             rule,
-        };
-        self.lock().push(slot);
+        });
         Ok(())
     }
 
-    /// Append several rules, all or none.
+    /// Append several rules, all or none (a full queue is left unchanged).
     pub fn add_all(&self, rules: Vec<InjectRule>) -> Result<(), String> {
         for (i, r) in rules.iter().enumerate() {
             r.check().map_err(|e| format!("inject[{i}]: {e}"))?;
         }
+        let mut slots = self.lock();
+        if slots.len().saturating_add(rules.len()) > MAX_PENDING_RULES {
+            return Err(format!("at most {MAX_PENDING_RULES} injection rules"));
+        }
         for r in rules {
-            self.add(r)?;
+            slots.push(Slot {
+                skip_left: r.skip,
+                left: r.count,
+                hits: 0,
+                rule: r,
+            });
         }
         Ok(())
     }
@@ -988,6 +1027,26 @@ mod tests {
             .add_all(vec![InjectRule::default(), InjectRule::http(1, "")])
             .is_err());
         assert!(inj.pending().is_empty(), "all or none");
+    }
+
+    #[test]
+    fn the_queue_refuses_past_the_cap_without_keeping_a_partial_batch() {
+        let inj = Injector::new();
+        let batch = vec![InjectRule::default(); MAX_PENDING_RULES];
+        inj.add_all(batch).unwrap();
+        assert_eq!(inj.len(), MAX_PENDING_RULES);
+        assert!(inj.check_room(false, 1).is_err());
+        assert!(inj.add(InjectRule::default()).is_err());
+        assert_eq!(
+            inj.len(),
+            MAX_PENDING_RULES,
+            "a refused add leaves the queue"
+        );
+        let err = inj.add_all(vec![InjectRule::default(); 2]);
+        assert!(err.is_err());
+        assert_eq!(inj.len(), MAX_PENDING_RULES, "a refused batch adds nothing");
+        assert!(inj.check_room(true, MAX_PENDING_RULES).is_ok());
+        assert!(inj.check_room(true, MAX_PENDING_RULES + 1).is_err());
     }
 
     #[test]

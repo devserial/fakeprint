@@ -7,7 +7,8 @@ second `SendDocument`, a 503, a dropped connection, a slow printer) are armed on
 `"inject_clear": true` to drop pending rules first. `GET /v1/faults` reports
 `"inject": {"pending": [...], "hits": N, "skipped": N}`; `DELETE /v1/faults` (and `POST /v1/reset`)
 clears the rules. A malformed rule, or an unknown `fail_next_document` value, answers HTTP 400
-with the reason and changes nothing. Rules never apply to `/health`, `/` or `/v1/*`.
+with the reason and changes nothing. A device keeps at most 256 pending rules; a POST that would
+pass that cap is HTTP 400 and adds none of its rules. Rules never apply to `/health`, `/` or `/v1/*`.
 
 ```json
 { "op": "SendDocument",           // short name (case-insensitive) or full action URI; absent = any

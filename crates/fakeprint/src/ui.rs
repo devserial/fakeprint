@@ -33,12 +33,7 @@ pub const INDEX_HTML: &str = include_str!("ui/index.html");
 
 /// True for 127.0.0.0/8, `::1`, and IPv4-mapped IPv6 forms of 127.0.0.0/8.
 pub fn is_loopback_peer(ip: IpAddr) -> bool {
-    match ip {
-        IpAddr::V4(v4) => v4.is_loopback(),
-        IpAddr::V6(v6) => {
-            v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
-        }
-    }
+    crate::lab::is_loopback_ip(ip)
 }
 
 /// Validate an `open_settings` request: the peer must be known and loopback, and only the

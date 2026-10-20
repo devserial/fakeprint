@@ -63,6 +63,11 @@ pub const DEFAULT_BODY_CAP: usize = 256 * 1024;
 pub const DEFAULT_DOC_HEAD: usize = 16 * 1024;
 /// Default cap of the payload bytes held by the whole ring.
 pub const DEFAULT_MAX_BYTES: usize = 32 * 1024 * 1024;
+
+/// Largest reply the capture middleware will hold while it records the exchange. Printer
+/// replies are a few kilobytes; past this the connection is dropped instead of allocating
+/// the whole body.
+const MAX_RESPONSE_BUFFER: usize = 16 << 20;
 /// Pending ticket / job side tables are bounded to this many jobs.
 const JOB_META_MAX: usize = 1024;
 /// Request seqs remembered per job.
@@ -1623,7 +1628,7 @@ pub async fn capture(State(world): State<SharedWorld>, req: Request, next: Next)
     log.in_flight.fetch_sub(1, Ordering::Relaxed);
 
     let (rparts, rbody) = resp.into_parts();
-    let collected = axum::body::to_bytes(rbody, usize::MAX).await;
+    let collected = axum::body::to_bytes(rbody, MAX_RESPONSE_BUFFER).await;
     let latency_us = started.elapsed().as_micros() as u64;
     let nd = note.take();
     let (rbytes, mut dropped) = match &collected {

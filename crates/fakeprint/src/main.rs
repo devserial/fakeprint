@@ -349,6 +349,7 @@ async fn main() -> anyhow::Result<()> {
             std::process::exit(1);
         }
     };
+    #[cfg(windows)]
     let manager = handle.manager();
     #[cfg(windows)]
     manager.set_settings_launcher(std::sync::Arc::new(

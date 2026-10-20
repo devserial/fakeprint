@@ -1,0 +1,158 @@
+name: release
+
+# Prebuilt fakeprint binaries, so nobody has to compile.
+#
+#   git tag v0.1.0 && git push origin v0.1.0
+#
+# builds the daemon for Windows, Linux and macOS, writes SHA256SUMS, attests build provenance and
+# creates a DRAFT GitHub release (publish it from the Releases page after a look).
+# Without a tag (workflow_dispatch, or a pull request that touches this file) it only builds and
+# uploads the archives as workflow artifacts: a dry run, nothing is released.
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  BIN: fakeprint
+
+jobs:
+  version:
+    name: check the tag matches Cargo.toml
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        shell: bash
+        run: |
+          cargo_version=$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -n1)
+          echo "version=$cargo_version" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="${GITHUB_REF#refs/tags/v}"
+            if [[ "$tag" != "$cargo_version" && "$tag" != "$cargo_version"-* ]]; then
+              echo "::error::tag v$tag does not match Cargo.toml version $cargo_version"
+              exit 1
+            fi
+          fi
+
+  build:
+    name: build (${{ matrix.target }})
+    needs: version
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest,  target: x86_64-pc-windows-msvc,    archive: zip }
+          - { os: ubuntu-22.04,    target: x86_64-unknown-linux-gnu,  archive: tar.gz }
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, archive: tar.gz }
+          - { os: macos-latest,    target: aarch64-apple-darwin,      archive: tar.gz }
+          - { os: macos-latest,    target: x86_64-apple-darwin,       archive: tar.gz }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: build
+        run: cargo build --release --locked -p ${{ env.BIN }} --target ${{ matrix.target }}
+
+      - name: smoke test (native targets only)
+        if: matrix.target != 'x86_64-apple-darwin'
+        shell: bash
+        run: |
+          exe="target/${{ matrix.target }}/release/${{ env.BIN }}"
+          [[ "${{ runner.os }}" == "Windows" ]] && exe="$exe.exe"
+          "$exe" --help > /dev/null
+
+      - name: package
+        shell: bash
+        run: |
+          name="${{ env.BIN }}-${{ needs.version.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "dist/$name"
+          exe="target/${{ matrix.target }}/release/${{ env.BIN }}"
+          [[ "${{ runner.os }}" == "Windows" ]] && exe="$exe.exe"
+          cp "$exe" "dist/$name/"
+          cp -r profiles "dist/$name/profiles"
+          cp README.md LICENSE-APACHE LICENSE-MIT "dist/$name/"
+          cd dist
+          if [[ "${{ matrix.archive }}" == "zip" ]]; then
+            7z a -tzip "$name.zip" "$name" > /dev/null
+          else
+            tar czf "$name.tar.gz" "$name"
+          fi
+          rm -rf "$name"
+          ls -l
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: no Microsoft specification files in the archive
+        shell: bash
+        run: bash .github/scripts/check-artifacts.sh dist/*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BIN }}-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: draft release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+          path: _repo
+
+      - name: no Microsoft specification files in any artifact
+        run: bash _repo/.github/scripts/check-artifacts.sh dist/*
+
+      - name: checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/*"
+
+      - name: create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=""
+          [[ "$GITHUB_REF_NAME" == *-* ]] && prerelease="--prerelease"
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --draft $prerelease \
+            --title "${{ env.BIN }} $GITHUB_REF_NAME" \
+            --notes "Prebuilt ${{ env.BIN }} for Windows (x64), Linux (x64, arm64) and macOS (arm64, x64). Each archive holds the binary, the device profiles and the licences. Verify with \`sha256sum -c SHA256SUMS\` or \`gh attestation verify <file> --repo $GITHUB_REPOSITORY\`."

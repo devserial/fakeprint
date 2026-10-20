@@ -62,12 +62,31 @@ impl IppRuntime {
 ///
 /// Registered on `/ipp/print` always when IPP is on (also needed for CID:MS_IPP WSDMON queue
 /// creation, which probes this endpoint before creating `SWD\PRINTENUM`).
+///
+/// The body is read with [`PrintLimits::max_body`](crate::wsd::ctx::PrintLimits::max_body) as a
+/// hard cap (the same cap the WSD routes use). A larger body is HTTP 413 and never reaches the
+/// job engine. Axum's default 2 MiB extractor limit does not apply: this handler reads the raw
+/// body itself.
 pub async fn print_handler(
     State(world): State<Arc<RwLock<World>>>,
-    method: Method,
-    headers: HeaderMap,
-    body: Bytes,
+    req: axum::extract::Request,
 ) -> Response {
+    let (parts, body) = req.into_parts();
+    let max = world.read().await.print_ctx().config.limits.max_body;
+    let body = match axum::body::to_bytes(body, max).await {
+        Ok(b) => b,
+        Err(_) => {
+            warn!(max, "IPP request over the body limit");
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                [(header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+                "IPP request body exceeds the printer's max_body limit",
+            )
+                .into_response();
+        }
+    };
+    let method = parts.method;
+    let headers = parts.headers;
     let ct = headers
         .get(header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -141,10 +160,6 @@ pub async fn print_handler(
         )
             .into_response()
     } else {
-        let max = svc.ctx.config.limits.max_body;
-        if body.len() > max {
-            warn!(bytes = body.len(), max, "IPP request over the body limit");
-        }
         let request = codec::Message::parse(&body).ok();
         let svc2 = svc.clone();
         let b = body.clone();
@@ -334,7 +349,11 @@ pub async fn print_stub(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    print_handler(State(world), method, headers, body).await
+    let mut req = axum::extract::Request::new(axum::body::Body::from(body));
+    *req.method_mut() = method;
+    *req.uri_mut() = "/ipp/print".parse().expect("uri");
+    *req.headers_mut() = headers;
+    print_handler(State(world), req).await
 }
 
 fn ipp_response(bytes: Vec<u8>) -> Response {

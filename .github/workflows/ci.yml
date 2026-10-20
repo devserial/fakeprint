@@ -30,9 +30,9 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - name: fetch WSD specs
+      - name: fetch WSD specs (licence accepted, test inputs only)
         shell: pwsh
-        run: ./scripts/Get-WsdSpecs.ps1
+        run: ./scripts/Get-WsdSpecs.ps1 -AcceptLicense
 
       - name: fmt
         run: cargo fmt --all -- --check
@@ -50,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: fetch WSD specs
+      - name: fetch WSD specs (licence accepted, test inputs only)
         shell: pwsh
         run: ./scripts/Get-WsdSpecs.ps1 -AcceptLicense
 

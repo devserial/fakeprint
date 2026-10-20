@@ -21,8 +21,10 @@ Code: `crates/fakeprint/src/ipp/` (`codec.rs` wire format, `caps.rs` profile -> 
 | default | `ipp://HOST:PORT/ipp/print` | `POST http://HOST:PORT/ipp/print` | `http://HOST:PORT/v1/...` |
 | device `x` | `ipp://HOST:PORT/d/x/ipp/print` | `POST http://HOST:PORT/d/x/ipp/print` | `http://HOST:PORT/d/x/v1/...` |
 
-* Content-Type must be `application/ipp` (anything else with a body: HTTP 415). IPP errors are IPP
-  status codes inside an HTTP 200; HTTP errors only come from injection or a wrong content type.
+* Content-Type must be `application/ipp` (anything else with a body: HTTP 415). A body larger than
+  the printer's `max_body` (64 MiB by default) is HTTP 413 and is not parsed. Other IPP errors are
+  IPP status codes inside an HTTP 200; those HTTP errors only come from injection, a wrong content
+  type, or that body cap.
 * `job-uri` is `<printer-uri>/<job-id>`; a client may also POST a job operation to that path
   (`/ipp/print/<job-id>`), the body decides.
 * `printer-uri` is checked on **path** only: scheme `ipp`, `ipps`, `http` or `https`, any host and

@@ -889,6 +889,8 @@ impl PrintCtx {
     /// [`PrintCtx::apply_faults`] after checking the body; nothing changes when it is refused.
     pub fn apply_faults_checked(&self, body: &FaultBody) -> Result<(), String> {
         body.check()?;
+        self.inject
+            .check_room(body.reset || body.inject_clear, body.inject.len())?;
         self.apply_faults(body);
         Ok(())
     }

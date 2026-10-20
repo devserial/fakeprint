@@ -398,13 +398,13 @@ async fn mutations_need_a_loopback_peer_but_in_process_calls_pass() {
     use tower::ServiceExt;
     let tmp = TempDir::new("md-guard");
     let srv = two(&tmp).await;
-    let body = json!({"id": "g", "profile": "generic-wsd"}).to_string();
-    let mk = |peer: Option<std::net::SocketAddr>| {
+    let mk = |id: &str, peer: Option<std::net::SocketAddr>| {
+        let body = json!({"id": id, "profile": "generic-wsd"}).to_string();
         let mut req = axum::http::Request::builder()
             .method("POST")
             .uri("/v1/devices")
             .header("content-type", "application/json")
-            .body(axum::body::Body::from(body.clone()))
+            .body(axum::body::Body::from(body))
             .unwrap();
         if let Some(p) = peer {
             req.extensions_mut().insert(axum::extract::ConnectInfo(p));
@@ -412,10 +412,27 @@ async fn mutations_need_a_loopback_peer_but_in_process_calls_pass() {
         req
     };
     let lan: std::net::SocketAddr = "192.168.1.9:5555".parse().unwrap();
-    let r = srv.router().oneshot(mk(Some(lan))).await.unwrap();
+    let r = srv.router().oneshot(mk("g", Some(lan))).await.unwrap();
+    assert_eq!(r.status(), 403);
+    // A dual-stack listener reports 127.0.0.1 as ::ffff:127.0.0.1. That is still loopback.
+    // A mapped LAN address is not.
+    let mapped_lo: std::net::SocketAddr = "[::ffff:127.0.0.1]:9".parse().unwrap();
+    let mapped_lan: std::net::SocketAddr = "[::ffff:192.168.1.9]:9".parse().unwrap();
+    let r = srv
+        .router()
+        .oneshot(mk("g", Some(mapped_lan)))
+        .await
+        .unwrap();
     assert_eq!(r.status(), 403);
     assert_eq!(srv.devices().await.len(), 2);
-    let r = srv.router().oneshot(mk(None)).await.unwrap();
+    let r = srv
+        .router()
+        .oneshot(mk("g", Some(mapped_lo)))
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 201);
+    assert_eq!(srv.devices().await.len(), 3);
+    let r = srv.router().oneshot(mk("h", None)).await.unwrap();
     assert_eq!(r.status(), 201);
     let mut req = axum::http::Request::builder()
         .uri("/d/a/v1/status")

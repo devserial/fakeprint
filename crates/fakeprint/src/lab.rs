@@ -113,6 +113,18 @@ pub fn default_listen() -> SocketAddr {
     SocketAddr::from((Ipv4Addr::UNSPECIFIED, LAB_PORT))
 }
 
+/// True for a loopback address, including an IPv4 loopback written as an IPv4-mapped IPv6
+/// address (`::ffff:127.0.0.1`). `IpAddr::is_loopback` is false for that form, which is how a
+/// dual-stack listener reports a connection to `127.0.0.1`.
+pub fn is_loopback_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback(),
+        IpAddr::V6(v6) => {
+            v6.is_loopback() || v6.to_ipv4_mapped().is_some_and(|v4| v4.is_loopback())
+        }
+    }
+}
+
 /// First non-loopback IPv4 (for `--advertise` when listen is `0.0.0.0`).
 pub fn first_lan_ipv4() -> Option<Ipv4Addr> {
     let socket = UdpSocket::bind("0.0.0.0:0").ok()?;

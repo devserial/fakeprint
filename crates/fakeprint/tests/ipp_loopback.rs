@@ -1743,3 +1743,36 @@ async fn a_minimal_profile_does_not_advertise_print_scaling_and_refuses_it() {
     assert_eq!(row["ipp"]["scaling"], serde_json::Value::Null);
     r.finish().await;
 }
+
+#[tokio::test]
+async fn an_ipp_body_over_max_body_is_http_413_and_creates_no_job() {
+    let tmp = TempDir::new("ipp-cap");
+    let limits = fakeprint::wsd::ctx::PrintLimits {
+        max_body: 32,
+        ..Default::default()
+    };
+    let mut cfg = ServerConfig::embedded(tmp.path().join("inbox"));
+    cfg.profile = Some(profile("generic-wsd"));
+    cfg.limits = limits;
+    cfg.timing = PrintTiming::instant();
+    let srv = serve(cfg).await.expect("server starts");
+    let addr = srv.local_addr();
+    let uri = format!("ipp://127.0.0.1:{}/ipp/print", addr.port());
+    let body = Req::new(OP_GET_PRINTER_ATTRIBUTES, &uri).bytes();
+    assert!(body.len() > 32, "the fixture has to be larger than the cap");
+    let r = request(
+        addr,
+        "POST",
+        "/ipp/print",
+        vec![("Content-Type".into(), "application/ipp".into())],
+        body,
+    )
+    .await;
+    assert_eq!(r.status, 413, "{}", r.text());
+    assert!(r.text().contains("max_body"));
+    let jobs = get_json(addr, "/v1/jobs").await;
+    assert!(jobs["print_jobs"].as_array().unwrap().is_empty());
+    let browse = request(addr, "GET", "/ipp/print", vec![], vec![]).await;
+    assert_eq!(browse.status, 200, "an empty GET is not a body-limit error");
+    srv.shutdown().await;
+}
