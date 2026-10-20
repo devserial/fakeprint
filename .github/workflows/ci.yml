@@ -43,6 +43,12 @@ jobs:
       - name: test
         run: cargo test -p fakeprint
 
+      - name: clippy (mcp)
+        run: cargo clippy -p fakeprint-mcp --all-targets -- -D warnings
+
+      - name: test (mcp)
+        run: cargo test -p fakeprint-mcp
+
   python-lab:
     name: python lab
     runs-on: ubuntu-latest

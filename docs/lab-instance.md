@@ -318,6 +318,8 @@ Attach-only stdio MCP for Cursor / claude-desktop. Requires `pip install -e './p
 
 Tools: `health`, `status`, `jobs`, `reset`, `ctl_info`, `ctl`, `set_profile`.
 
+Those Python tools call the control API immediately. A separate Rust binary, `crates/fakeprint-mcp`, speaks the same attach-only rule and adds the hardly gates: `send_*` returns a plan until `confirm=true`, and `write_*` will not replace a file unless `overwrite=true`. It is not on the default `fakeprint` build. See [proposals/mcp.md](proposals/mcp.md).
+
 ---
 
 ## Parallel instances within fakeprint

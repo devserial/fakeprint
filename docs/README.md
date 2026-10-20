@@ -16,6 +16,7 @@ Root [README](../README.md) is the quick start.
 | [roadmap.md](roadmap.md) | Lab harness shipped; Phase 2 IPP; faults later |
 | [e2e-wsd-status.md](e2e-wsd-status.md) | Live Windows gate checklist |
 | [prior-art.md](prior-art.md) | Related projects and why a sibling of fakescan |
+| [proposals/mcp.md](proposals/mcp.md) | Optional Rust MCP over the control API (`send_` / `write_` gates) |
 | [../CONTRIBUTING.md](../CONTRIBUTING.md) | fmt, clippy, tests, license |
 | [specs/](specs/README.md) | WS-Print / DPWS pointers |
 | [assets/](assets/) | Logo: beige printer + **Fp**; LCD **PC LOAD LETTER** |

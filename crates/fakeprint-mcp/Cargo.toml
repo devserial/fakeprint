@@ -1,0 +1,19 @@
+[package]
+name = "fakeprint-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Optional stdio MCP server for a running fakeprint control API"
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fakeprint-mcp"
+path = "src/main.rs"
+
+[dependencies]
+serde_json = "1"
